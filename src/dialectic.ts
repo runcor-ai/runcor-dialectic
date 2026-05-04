@@ -54,16 +54,25 @@ export async function dialectic(config: DialecticConfig): Promise<DialecticResul
     }
   }
 
-  // Resolve providers
+  const _prices = mergePrices(config.customPrices); // applied via cost.ts when adapter computes
+  void _prices;
+
+  // Dispatch on topology — canonical (default), inter-agent, or multi-critic.
+  if (roleSet.topology === 'inter-agent') {
+    return runInterAgent(config, effectiveRoles);
+  }
+  if (roleSet.topology === 'multi-critic') {
+    return runMultiCritic(config, effectiveRoles);
+  }
+
+  // ── Canonical Player/Coach/Judge topology ──
   const playerCfg = effectiveRoles['player'];
   const coachCfg = effectiveRoles['coach'];
   const judgeCfg = effectiveRoles['judge'];
   if (!playerCfg || !coachCfg || !judgeCfg) {
-    throw new Error(`Role-set "${roleSetName}" missing required roles. Got: ${Object.keys(effectiveRoles).join(', ')}`);
+    throw new Error(`Role-set "${roleSetName}" missing required roles for canonical topology. Got: ${Object.keys(effectiveRoles).join(', ')}`);
   }
 
-  const _prices = mergePrices(config.customPrices); // applied via cost.ts when adapter computes
-  void _prices;
   const budget = new BudgetTracker(config.budget_cap_usd);
 
   const playerProvider = resolveProvider(playerCfg.model, 'player');
@@ -309,6 +318,214 @@ export async function dialectic(config: DialecticConfig): Promise<DialecticResul
     rounds: coachRounds,
     converged,
     convergence_reason: convergenceReason,
+    cost: { usd: budget.total, tokens: totalTokens },
+    duration_ms: totalDuration,
+  };
+}
+
+// ── Topology: multi-critic ──────────────────────────────────────────────────
+// Player drafts → each critic critiques (in sequence to be polite to rate limits)
+// → Judge synthesizes a final amended position incorporating each critic.
+
+async function runMultiCritic(
+  config: DialecticConfig,
+  effectiveRoles: Record<string, RoleConfig>,
+): Promise<DialecticResult> {
+  const playerCfg = effectiveRoles['player'];
+  const judgeCfg = effectiveRoles['judge'];
+  if (!playerCfg || !judgeCfg) {
+    throw new Error(`multi-critic role-set missing required roles: player and judge`);
+  }
+  // Critics are every role that isn't player or judge
+  const criticEntries = Object.entries(effectiveRoles).filter(
+    ([name]) => name !== 'player' && name !== 'judge',
+  );
+  if (criticEntries.length === 0) {
+    throw new Error(`multi-critic role-set has no critics — at least one critic role required`);
+  }
+
+  const budget = new BudgetTracker(config.budget_cap_usd);
+  const transcript: Round[] = [];
+  const totalTokens: Tokens = { input: 0, output: 0 };
+  let totalDuration = 0;
+  let entryIndex = 0;
+
+  const playerProvider = resolveProvider(playerCfg.model, 'player');
+  const judgeProvider = resolveProvider(judgeCfg.model, 'judge');
+
+  function pushRound(args: { round: number; role: string; model: string; content: string; tokens: Tokens; cost_usd: number; duration_ms: number; }): void {
+    transcript.push({
+      index: entryIndex++,
+      ...args,
+      timestamp: new Date().toISOString(),
+    });
+    totalTokens.input += args.tokens.input;
+    totalTokens.output += args.tokens.output;
+    totalDuration += args.duration_ms;
+    budget.add(args.cost_usd);
+  }
+
+  function checkBudget(estimatedNext: number): void {
+    if (budget.wouldExceed(estimatedNext)) {
+      throw new BudgetExhaustedError(budget.cap ?? 0, budget.total + estimatedNext, transcript);
+    }
+  }
+
+  // Round 0: Player drafts
+  const playerInit = await callProvider(
+    playerProvider,
+    [{ role: 'system', content: playerCfg.systemPrompt }, { role: 'user', content: config.problem }],
+    playerCfg, 'player', 0, transcript,
+  );
+  pushRound({
+    round: 0, role: 'player', model: playerCfg.model,
+    content: playerInit.content, tokens: playerInit.tokens,
+    cost_usd: playerInit.cost_usd, duration_ms: playerInit.duration_ms,
+  });
+
+  // Each critic critiques the Player's draft (sequential, not parallel — be polite to rate limits)
+  const critiques: Array<{ role: string; content: string }> = [];
+  for (const [criticName, criticCfg] of criticEntries) {
+    checkBudget(playerInit.cost_usd);
+    const criticProvider = resolveProvider(criticCfg.model, criticName);
+    const res = await callProvider(
+      criticProvider,
+      [
+        { role: 'system', content: criticCfg.systemPrompt },
+        { role: 'user', content: `Problem:\n${config.problem}\n\nPlayer's draft:\n${playerInit.content}\n\nProvide your critique from your role's perspective.` },
+      ],
+      criticCfg, criticName, 0, transcript,
+    );
+    pushRound({
+      round: 0, role: criticName, model: criticCfg.model,
+      content: res.content, tokens: res.tokens,
+      cost_usd: res.cost_usd, duration_ms: res.duration_ms,
+    });
+    critiques.push({ role: criticName, content: res.content });
+  }
+
+  // Judge synthesizes
+  checkBudget(playerInit.cost_usd);
+  const judgePrompt = `Problem:\n${config.problem}\n\n` +
+    `Player's draft:\n${playerInit.content}\n\n` +
+    critiques.map(c => `${c.role.toUpperCase()} critique:\n${c.content}`).join('\n\n') + '\n\n' +
+    `Synthesize a final amended position. For each critic's substantive concern, decide whether the Player should incorporate it. Output the final amended answer.`;
+  const judgeRes = await callProvider(
+    judgeProvider,
+    [
+      { role: 'system', content: judgeCfg.systemPrompt },
+      { role: 'user', content: judgePrompt },
+    ],
+    judgeCfg, 'judge', 0, transcript,
+  );
+  pushRound({
+    round: 0, role: 'judge', model: judgeCfg.model,
+    content: judgeRes.content, tokens: judgeRes.tokens,
+    cost_usd: judgeRes.cost_usd, duration_ms: judgeRes.duration_ms,
+  });
+
+  return {
+    answer: judgeRes.content,
+    transcript,
+    rounds: 1,
+    converged: true,
+    convergence_reason: 'coach-converged-validated', // single-pass synthesis — no convergence loop
+    cost: { usd: budget.total, tokens: totalTokens },
+    duration_ms: totalDuration,
+  };
+}
+
+// ── Topology: inter-agent ───────────────────────────────────────────────────
+// Player-A drafts → Player-B drafts (sees A's position) → Judge synthesizes.
+// Used for cross-agent convergence on a shared workspace.
+
+async function runInterAgent(
+  config: DialecticConfig,
+  effectiveRoles: Record<string, RoleConfig>,
+): Promise<DialecticResult> {
+  const playerACfg = effectiveRoles['player-a'];
+  const playerBCfg = effectiveRoles['player-b'];
+  const judgeCfg = effectiveRoles['judge'];
+  if (!playerACfg || !playerBCfg || !judgeCfg) {
+    throw new Error(`inter-agent role-set missing required roles: player-a, player-b, judge`);
+  }
+
+  const budget = new BudgetTracker(config.budget_cap_usd);
+  const transcript: Round[] = [];
+  const totalTokens: Tokens = { input: 0, output: 0 };
+  let totalDuration = 0;
+  let entryIndex = 0;
+
+  const playerAProvider = resolveProvider(playerACfg.model, 'player-a');
+  const playerBProvider = resolveProvider(playerBCfg.model, 'player-b');
+  const judgeProvider = resolveProvider(judgeCfg.model, 'judge');
+
+  function pushRound(args: { round: number; role: string; model: string; content: string; tokens: Tokens; cost_usd: number; duration_ms: number; }): void {
+    transcript.push({
+      index: entryIndex++,
+      ...args,
+      timestamp: new Date().toISOString(),
+    });
+    totalTokens.input += args.tokens.input;
+    totalTokens.output += args.tokens.output;
+    totalDuration += args.duration_ms;
+    budget.add(args.cost_usd);
+  }
+
+  function checkBudget(estimatedNext: number): void {
+    if (budget.wouldExceed(estimatedNext)) {
+      throw new BudgetExhaustedError(budget.cap ?? 0, budget.total + estimatedNext, transcript);
+    }
+  }
+
+  // Player-A drafts
+  const aRes = await callProvider(
+    playerAProvider,
+    [{ role: 'system', content: playerACfg.systemPrompt }, { role: 'user', content: config.problem }],
+    playerACfg, 'player-a', 0, transcript,
+  );
+  pushRound({
+    round: 0, role: 'player-a', model: playerACfg.model,
+    content: aRes.content, tokens: aRes.tokens,
+    cost_usd: aRes.cost_usd, duration_ms: aRes.duration_ms,
+  });
+
+  // Player-B sees A's position and drafts
+  checkBudget(aRes.cost_usd);
+  const bRes = await callProvider(
+    playerBProvider,
+    [
+      { role: 'system', content: playerBCfg.systemPrompt },
+      { role: 'user', content: `Problem:\n${config.problem}\n\nPlayer-A's position:\n${aRes.content}\n\nProvide your independent reading.` },
+    ],
+    playerBCfg, 'player-b', 0, transcript,
+  );
+  pushRound({
+    round: 0, role: 'player-b', model: playerBCfg.model,
+    content: bRes.content, tokens: bRes.tokens,
+    cost_usd: bRes.cost_usd, duration_ms: bRes.duration_ms,
+  });
+
+  // Judge synthesizes
+  checkBudget(aRes.cost_usd);
+  const judgePrompt = `Problem:\n${config.problem}\n\nPlayer-A:\n${aRes.content}\n\nPlayer-B:\n${bRes.content}\n\nIdentify points of agreement, points of disagreement, and the evidence supporting each side. Output the team's shared resolution.`;
+  const judgeRes = await callProvider(
+    judgeProvider,
+    [{ role: 'system', content: judgeCfg.systemPrompt }, { role: 'user', content: judgePrompt }],
+    judgeCfg, 'judge', 0, transcript,
+  );
+  pushRound({
+    round: 0, role: 'judge', model: judgeCfg.model,
+    content: judgeRes.content, tokens: judgeRes.tokens,
+    cost_usd: judgeRes.cost_usd, duration_ms: judgeRes.duration_ms,
+  });
+
+  return {
+    answer: judgeRes.content,
+    transcript,
+    rounds: 1,
+    converged: true,
+    convergence_reason: 'coach-converged-validated', // single-pass synthesis
     cost: { usd: budget.total, tokens: totalTokens },
     duration_ms: totalDuration,
   };
