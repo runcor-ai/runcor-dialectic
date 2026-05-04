@@ -73,7 +73,7 @@ Rationale: Today's best Player model may not be tomorrow's. Lock-in to one provi
 
 This constitution supersedes all other practices for `runcor-dialectic`. Amendments require:
 1. A spec under `specs/NNN-amendment-...` describing the change and rationale
-2. Approval by the project owner (Jaz Sunda)
+2. Approval by the project owner
 3. Version bump per semantic versioning:
    - MAJOR: Principle removal or backward-incompatible redefinition
    - MINOR: Principle addition or material expansion
