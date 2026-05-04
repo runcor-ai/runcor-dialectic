@@ -5,12 +5,16 @@ import { providerRegistry } from './providers/index.js';
 import { OpenRouterAdapter } from './providers/openrouter.js';
 import { roleRegistry } from './roles/index.js';
 import { canonicalRoleSet } from './roles/canonical.js';
+import { interAgentRoleSet } from './roles/inter-agent.js';
+import { multiCriticRoleSet } from './roles/multi-critic.js';
 
 // Auto-register defaults on first import.
 providerRegistry.register(new OpenRouterAdapter());
 // Anthropic adapter is registered lazily — the SDK is an optional peerDep.
 // Consumers can call registerProvider(new AnthropicAdapter()) if they want it.
 roleRegistry.registerRoleSet(canonicalRoleSet);
+roleRegistry.registerRoleSet(interAgentRoleSet);
+roleRegistry.registerRoleSet(multiCriticRoleSet);
 
 // Public exports.
 export { dialectic } from './dialectic.js';
@@ -20,6 +24,8 @@ export { OpenRouterAdapter } from './providers/openrouter.js';
 export { AnthropicAdapter } from './providers/anthropic.js';
 export { MockAdapter } from './providers/mock.js';
 export { canonicalRoleSet } from './roles/canonical.js';
+export { interAgentRoleSet } from './roles/inter-agent.js';
+export { multiCriticRoleSet } from './roles/multi-critic.js';
 export { computeCost, BudgetTracker, DEFAULT_PRICES } from './cost.js';
 export {
   validateCoachConvergence,
