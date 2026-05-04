@@ -1,0 +1,17 @@
+node_modules
+dist
+.env
+coverage
+*.log
+.DS_Store
+.vscode
+.idea
+*.tsbuildinfo
+
+# Local example output
+examples/*-results.json
+
+# Editor temp files
+*.swp
+*.swo
+*~
