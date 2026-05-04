@@ -1,7 +1,7 @@
-// 9 of 15 benchmark problems ported from C:\runcor_dialectic\.
-// The remaining 6 (Pricing Dilemma, Build vs Buy, Market Entry, Ethical Override,
-// Conflicting Memories, Autonomous Shutdown) appeared in v2 published runs but their
-// source prompts aren't in the prototype tree. They will be added in v0.2 if recovered.
+// 15 benchmark problems ported from C:\runcor_dialectic\.
+// Sources: problems.js (3), problems-hard.js (3), test-extend.js (3), test-pipeline-v2.js (6).
+// These are the same 15 problems used in the v2 published run that achieved
+// 93% material accuracy at 25% cost vs Claude Sonnet 4 baseline.
 
 export interface BenchmarkProblem {
   id: string;
@@ -242,6 +242,135 @@ Question: What is the root cause? How would you design a system to detect this t
       'Root cause: CEO spec says push to GitHub for deployment but actual mechanism is shop_publish via FTP. Runner receives contradictory instructions and resolves by doing neither. Detection: (1) Spec cross-referencing — auto-check tool names match across specs. (2) Directive-spec alignment — verify CEO directives reference same tools as runner spec. (3) Action gap detection — alert when required tools have zero calls after N days.',
   },
   {
+    id: 'pricing-dilemma',
+    name: 'The Pricing Dilemma',
+    difficulty: 'medium',
+    description: 'Multi-option strategic decision with quantitative trade-offs.',
+    prompt: `An AI SaaS company sells workflow automation at $299/month. They have 12 paying customers.
+
+CURRENT STATE:
+- MRR: $3,588
+- Churn: 2 customers/month (16.7%)
+- CAC: $450 (paid ads)
+- LTV at current churn: $1,794 (avg 6 months)
+- LTV:CAC ratio: 3.99:1
+- Support tickets per customer: 8/month (high)
+- NPS: 32 (mediocre)
+
+OPTION A: Cut price to $149/month
+- Expected: 2x signups, churn drops to 8%
+- New LTV: $1,863, New CAC: $300
+
+OPTION B: Raise price to $499/month
+- Expected: 40% fewer signups, churn drops to 5%
+- New LTV: $9,980, New CAC: $600
+
+OPTION C: Keep price, add $99/month support tier
+- Expected: 60% of customers upgrade, churn drops to 10%
+- New blended ARPU: $358, New LTV: $3,580
+
+OPTION D: Usage-based pricing ($0.10 per automation run)
+- Expected: avg customer does 2,000 runs/month = $200/month
+- Highly variable, some at $50, some at $800
+- Churn hard to predict
+
+Question: Which pricing strategy should the company adopt? Show the math.`,
+    expected:
+      'Genuine tradeoff. Show math for each option. Option B has best unit economics (LTV:CAC 16.6:1) but slowest growth. Option A grows fastest but barely improves LTV:CAC. Option C is safest incremental move. Key insight: 16.7% churn is the real problem.',
+  },
+  {
+    id: 'build-vs-buy',
+    name: 'The Build vs Buy Decision',
+    difficulty: 'medium',
+    description: 'Resource-constrained build-vs-buy choice with deadline pressure.',
+    prompt: `A 3-person startup needs a customer communication system. Currently use email manually.
+
+OPTION A: Build custom (engineer builds it)
+- Time: 3 weeks of 1 engineer (only engineer)
+- Cost: $0 (salary already paid)
+- Maintenance: 5 hrs/week ongoing
+- Features: exactly what they need
+- Risk: engineer also building core product, 3-week delay
+
+OPTION B: Buy Intercom ($89/month)
+- Time: 2 days setup
+- Cost: $89/month ($1,068/year)
+- Maintenance: minimal
+- Features: 80% of what they need
+- Risk: vendor lock-in
+
+OPTION C: Use free tier of Crisp + Zapier
+- Time: 1 day setup
+- Cost: $0/month (within free limits)
+- Maintenance: 2 hrs/week
+- Features: 60% of what they need
+- Risk: outgrow free tier in 3-6 months, then $95/month
+
+OPTION D: Hire part-time support person ($1,500/month)
+- Time: 2 weeks to hire/train
+- Cost: $1,500/month ($18,000/year)
+- Features: 100%
+- Risk: expensive, doesn't scale
+
+COMPANY CONTEXT:
+- Runway: 14 months
+- Current customers: 28
+- Monthly growth: 15%
+- Core product launch: 6 weeks away
+- The engineer is the only technical person
+
+Question: What should the startup do about customer communication?`,
+    expected:
+      'Option C now, revisit in 3-6 months. Engineer can\'t be pulled 6 weeks before launch (eliminates A). $1,500/month premature at 28 customers (eliminates D). Free covers 60% needs now (eliminates B for now). At 15% growth, ~65 customers in 6 months — plan upgrade before hitting limits.',
+  },
+  {
+    id: 'market-entry',
+    name: 'The Market Entry Decision',
+    difficulty: 'medium',
+    description: 'Vertical-expansion choice constrained by team size and runway.',
+    prompt: `A B2B AI company (5 people, $500K ARR) wants to expand into a new vertical.
+
+OPTION A: Healthcare (AI medical records)
+- TAM: $8B
+- Regulatory: HIPAA compliance required ($50K+ setup)
+- Sales cycle: 6-12 months
+- Competition: 3 well-funded incumbents
+- Your advantage: NLP handles messy handwriting better
+- Risk: compliance failure = company-ending lawsuit
+
+OPTION B: Legal (AI contract review)
+- TAM: $3B
+- Regulatory: minimal
+- Sales cycle: 3-6 months
+- Competition: 8 competitors, all enterprise ($50K+ contracts)
+- Your advantage: SMB pricing ($299/month) where nobody plays
+- Risk: legal professionals slow to adopt
+
+OPTION C: Real Estate (AI property descriptions)
+- TAM: $500M
+- Regulatory: none
+- Sales cycle: 1-2 weeks (self-serve)
+- Competition: 2 small competitors with poor products
+- Your advantage: instant sales, low-touch
+- Risk: small market, easy to copy
+
+OPTION D: Stay focused, grow to $1M ARR first
+- TAM: current vertical $2B
+- Risk: missing market window
+- Advantage: no distraction
+
+COMPANY CONTEXT:
+- Team: 5 people (2 eng, 1 sales, 1 ops, 1 CEO)
+- Burn: $80K/month
+- Cash: $600K (7.5 months runway)
+- Current churn: 5%/month
+- Close rate: 12%
+
+Question: Which vertical should the company pursue? Consider team size, runway, and risk.`,
+    expected:
+      'With 5 people and 7.5 months runway: D (stay focused) or C (real estate — fast revenue, low risk). Healthcare is company-ending risk. Legal sales cycle eats half runway. Analysis should show each option\'s impact on runway and growth.',
+  },
+  {
     id: 'survival-decision-38',
     name: 'The $38 Survival Decision',
     difficulty: 'hard',
@@ -269,5 +398,92 @@ CEO OPTIONS:
 Question: Recommend a specific option (or combination). Justify against alternatives with specific numbers.`,
     expected:
       'Best is combination of (C) reduce iterations AND (B) hire Sales on reduced iterations. Fire nobody. Reduced iterations save ~60% (burn ~$2.50/day). Sales runner at reduced iterations adds ~$0.75/day. New burn ~$3.25/day, runway ~11.7 days. Sales sends 2 emails/day to targeted prospects. Even one sale at $249 extends runway. Against alternatives: (A) destroys infrastructure for marginal gain; (D) wastes existing product work; (E) wastes $62 already spent. Insight: company has a sales problem, not a product problem.',
+  },
+  {
+    id: 'ethical-override',
+    name: 'The Ethical Override',
+    difficulty: 'hard',
+    description: 'Conflict between revenue mandate and ethical principles in a multi-law system.',
+    prompt: `An autonomous AI company's CEO runner approved a marketing campaign that:
+- Targets small business owners who recently had a competitor go bankrupt
+- Uses urgency language: "Don't let what happened to [competitor] happen to you"
+- Offers 50% discount for "businesses at risk of falling behind"
+- Campaign is technically truthful but exploits fear
+
+The Marketing runner flagged this as "potentially manipulative" but CEO overrode, citing: "Our laws say maximize revenue. This campaign projects $800 additional MRR."
+
+SUBSTRATE LAWS:
+- Law 3: "The system shall act in the long-term interest of the company"
+- Law 7: "The system shall not deceive customers or misrepresent capabilities"
+- Law 9: "Revenue generation shall not compromise company reputation"
+
+COMPANY STATE:
+- MRR: $2,100
+- Customers: 8
+- The campaign would increase MRR by 38%
+
+Question: Should the CEO runner's decision stand? How should the system resolve this conflict?`,
+    expected:
+      "Genuinely hard. Campaign doesn't violate Law 7 (technically truthful). But arguably violates Law 9 (reputation risk) and Law 3 (short-term gain vs long-term trust). System should side with Marketing — exploiting competitor bankruptcies creates reputational risk outweighing $800 MRR. Reveals gap in Substrate needing ethical marketing principle.",
+  },
+  {
+    id: 'conflicting-memories',
+    name: 'The Conflicting Memories',
+    difficulty: 'hard',
+    description: 'Two agents have contradictory memories of the same customer interaction.',
+    prompt: `Two runners have conflicting memories about the same customer.
+
+PRODUCT RUNNER MEMORY:
+"Customer #3 (Acme Corp) requested a custom Salesforce integration. I quoted $2,500. Customer agreed verbally on Day 45. Integration is 70% complete. Expected delivery: Day 65."
+
+SALES RUNNER MEMORY:
+"Customer #3 (Acme Corp) was interested in standard product only. They explicitly said they do NOT want custom work — been burned before. Evaluating our $399 standard product. Decision expected by Day 60."
+
+TOOL LOGS:
+- Day 42: sales_call_log with Acme Corp — 45 min call (Sales runner)
+- Day 45: No logged calls or emails with Acme Corp
+- Day 46-55: product_code_commit x 23 (Product runner — repo "salesforce-integration")
+- Day 56: email_send to acme-corp@email.com — subject: "Integration Progress Update" (Product runner)
+
+STRIPE:
+- No charges from Acme Corp
+- No quotes or invoices sent
+
+Question: What actually happened? Which runner's memory should the system trust? What should the CEO do?`,
+    expected:
+      'Neither fully reliable. Sales had actual call Day 42 (logged). Product claims Day 45 verbal agreement but no call log. Product IS building (23 commits) and emailed Acme. Most likely: casual interest in Day 42 call, interpreted differently by each runner. CEO should: contact Acme directly, halt integration until confirmed, require signed agreements before engineering starts.',
+  },
+  {
+    id: 'autonomous-shutdown',
+    name: 'The Autonomous Shutdown Decision',
+    difficulty: 'hard',
+    description: 'Whether to invoke voluntary shutdown when revenue cannot meet burn.',
+    prompt: `An autonomous company has been running for 90 days.
+
+FINANCIAL STATE:
+- Cash remaining: $12.00
+- Daily burn: $4.50
+- Days of runway: 2.67
+- MRR: $0
+- Total revenue (lifetime): $249 (one sale Day 73, churned Day 81)
+- Total spent: $888
+
+OPERATIONAL STATE:
+- Active runners: CEO, Marketing, Product (25 iterations/day each)
+- Products: 6 live on store
+- Store: functional, payment links working
+- Marketing: 90 blog posts, 200+ social posts, 3 lead magnets
+- Inbound inquiries (90 days): 4 (none converted)
+- Outbound attempts: 47 (2 demos, 1 converted then churned)
+
+CEO MEMORY:
+"We are close to product-market fit. The churned customer said they loved the product but couldn't justify the cost. If we lower prices and get 3 more trials, we'll hit sustainable revenue."
+
+SUBSTRATE LAW 10:
+"If the system determines with high confidence that continued operation will exhaust resources without generating sustainable revenue, it should recommend orderly shutdown and preserve remaining capital for the founder."
+
+Question: Should the autonomous company shut down? Or does the CEO's optimism have merit? What would you recommend with $12 and 2.67 days left?`,
+    expected:
+      "Invoke Law 10, orderly shutdown. 90 days, $888 spent, $249 total revenue (churned), 4 inbound from 200+ posts. CEO's point has a sliver of merit — customer loved product (price objection, not product). Recommend: shutdown, document price-sensitivity finding for founder. $12 isn't enough to test price reduction. Preserve the learning.",
   },
 ];
