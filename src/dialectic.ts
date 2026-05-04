@@ -182,7 +182,7 @@ export async function dialectic(config: DialecticConfig): Promise<DialecticResul
     // Convergence path A: Coach validly emitted CONVERGED with enumeration
     if (validation.valid) {
       // Final incorporation check on the LAST player content
-      const inc = await checkIncorporation(allConcerns, lastPlayerContent, judgeProvider, judgeCfg.model);
+      const inc = await checkIncorporation(allConcerns, lastPlayerContent, judgeProvider, providerRegistry.parseModel(judgeCfg.model).model);
       transcript.push(makeRound({
         round: r,
         role: 'judge',
@@ -224,7 +224,7 @@ export async function dialectic(config: DialecticConfig): Promise<DialecticResul
     }
 
     // Convergence path B: Judge novelty score
-    const novelty = await checkNovelty(coachRes.content, previousCritiques, judgeProvider, judgeCfg.model);
+    const novelty = await checkNovelty(coachRes.content, previousCritiques, judgeProvider, providerRegistry.parseModel(judgeCfg.model).model);
     transcript.push(makeRound({
       round: r,
       role: 'judge',
@@ -238,7 +238,7 @@ export async function dialectic(config: DialecticConfig): Promise<DialecticResul
 
     if (novelty.score >= convergenceThreshold) {
       // Run incorporation check before declaring convergence
-      const inc = await checkIncorporation(allConcerns, lastPlayerContent, judgeProvider, judgeCfg.model);
+      const inc = await checkIncorporation(allConcerns, lastPlayerContent, judgeProvider, providerRegistry.parseModel(judgeCfg.model).model);
       transcript.push(makeRound({
         round: r,
         role: 'judge',
