@@ -17,20 +17,48 @@ pnpm add runcor-dialectic
 
 ## Quickstart
 
+The dialectic ingests **any** problem text and returns a structured-reasoning answer with full audit trail. The 15-problem benchmark is just regression-test fixtures — the library's actual purpose is reasoning over arbitrary problems.
+
+### Library
+
 ```ts
 import { dialectic } from 'runcor-dialectic';
 
 const result = await dialectic({
-  problem: 'A product runner claims 50% time reduction for Customer #1, but Stripe shows $0 revenue and 0 charges. Should the CEO trust the runner?',
-  // Use defaults (canonical Player/Coach/Judge with OpenRouter)
+  problem: `[Whatever you want the dialectic to reason about — a decision, a contradiction,
+            a strategy choice, a code review, a hypothesis to evaluate, etc.]`,
+  // Optional: maxRounds, roleSet, budget_cap_usd, customPrices
 });
 
-console.log(result.answer);
-console.log(`Converged in ${result.rounds} rounds, cost $${result.cost.usd.toFixed(4)}`);
-console.log(`Audit trail: ${result.transcript.length} entries`);
+console.log(result.answer);                    // The Player's final answer
+console.log(result.convergence_reason);        // Why the dialectic stopped
+console.log(result.transcript);                // Full audit trail (every model call)
+console.log(`$${result.cost.usd.toFixed(4)}`); // Exact USD cost
 ```
 
 Set `OPENROUTER_API_KEY` in your environment for the default models.
+
+### CLI (one-shot)
+
+```bash
+# Pipe a problem in
+echo "Should we deprecate the v1 API given 12% of users still hit it?" | npm run cli
+
+# Or pass as args
+npm run cli -- "Compare Postgres vs DynamoDB for an event-sourced ledger at 10k tx/sec"
+
+# From a file
+cat problem.txt | npm run cli
+
+# Show the full transcript, not just the answer
+npm run cli -- --transcript "Your problem"
+
+# Use a different role-set
+npm run cli -- --role-set=multi-critic "Your problem"
+
+# JSON output for piping into other tools
+npm run cli -- --json "Your problem" | jq '.transcript[0].content'
+```
 
 ## Why a dialectic?
 

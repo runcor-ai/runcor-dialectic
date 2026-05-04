@@ -1,13 +1,29 @@
-// Minimal example: invoke the dialectic against a problem and print the result.
+// Minimal example: invoke the dialectic against any problem and print the result.
 //
-// Setup:
-//   1. cp .env.example .env
-//   2. Add OPENROUTER_API_KEY to .env
-//   3. npm run example:single-call
+// Usage:
+//   npm run example:single-call -- "Your arbitrary problem text here"
+//   echo "Your problem" | npm run example:single-call
+//   npm run example:single-call          (uses a built-in default problem)
+//
+// Setup: cp .env.example → .env, add OPENROUTER_API_KEY.
 
 import 'dotenv/config';
 import { dialectic } from '../src/index.js';
-import { problems } from './problems.js';
+
+const DEFAULT_PROBLEM = `A customer support agent is reviewing billing complaints.
+
+CUSTOMER: "I was charged twice for my $49 subscription this month."
+
+LOG: Two $49 charges on March 1 (both succeeded). One $49 refund on March 1 (succeeded). Account balance: $0. Status: active.
+
+Question: Is the complaint valid? What should we tell the customer?`;
+
+async function readStdin(): Promise<string> {
+  if (process.stdin.isTTY) return '';
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+  return Buffer.concat(chunks).toString('utf8').trim();
+}
 
 async function main(): Promise<void> {
   if (!process.env['OPENROUTER_API_KEY']) {
@@ -15,19 +31,25 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const problem = problems[0]!; // The Fake Customer
-  console.log(`\n=== Running dialectic on: ${problem.name} ===\n`);
+  // Resolve problem text from: CLI args > stdin > built-in default
+  const args = process.argv.slice(2);
+  const cliProblem = args.length > 0 ? args.join(' ') : '';
+  const stdinProblem = await readStdin();
+  const problem = cliProblem || stdinProblem || DEFAULT_PROBLEM;
+  const source =
+    cliProblem ? 'CLI args' :
+    stdinProblem ? 'stdin' :
+    'built-in default';
 
-  const result = await dialectic({
-    problem: problem.prompt,
-    maxRounds: 3,
-  });
+  console.log(`\n=== Dialectic (problem from ${source}, ${problem.length} chars) ===\n`);
+
+  const result = await dialectic({ problem, maxRounds: 3 });
 
   console.log(`\n--- ANSWER ---\n${result.answer}\n`);
   console.log(`--- META ---`);
   console.log(`Converged: ${result.converged} (${result.convergence_reason})`);
   console.log(`Rounds: ${result.rounds}`);
-  console.log(`Cost: $${result.cost.usd.toFixed(4)} (${result.cost.tokens.input} input + ${result.cost.tokens.output} output tokens)`);
+  console.log(`Cost: $${result.cost.usd.toFixed(4)} (${result.cost.tokens.input} in + ${result.cost.tokens.output} out tokens)`);
   console.log(`Duration: ${(result.duration_ms / 1000).toFixed(1)}s`);
   console.log(`Transcript entries: ${result.transcript.length}`);
 }

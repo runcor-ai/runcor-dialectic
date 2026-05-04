@@ -24,6 +24,8 @@
     "example:single-call": "tsx examples/single-call.ts",
     "example:15-problems": "tsx examples/15-problems.ts",
     "example:custom-provider": "tsx examples/custom-provider.ts",
+    "example:cli": "tsx examples/cli.ts",
+    "cli": "tsx examples/cli.ts",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run typecheck && npm run test && npm run build"
   },
