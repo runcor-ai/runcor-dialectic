@@ -99,7 +99,8 @@ export type ConvergenceReason =
   | 'judge-incorporation-vetoed'
   | 'max-rounds-without-incorporation'
   | 'max-rounds'
-  | 'budget-exhausted';
+  | 'budget-exhausted'
+  | 'single-pass-synthesized'; // multi-critic and inter-agent topologies — no convergence loop
 
 // ── Dialectic input/output ──────────────────────────────────────────────────
 

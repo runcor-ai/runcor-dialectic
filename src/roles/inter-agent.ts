@@ -29,10 +29,11 @@ BEHAVIOR Position {
 }`;
 
 const JUDGE_INTER_AGENT_SYSTEM = `TARGET {
-  output: synthesis of two agent positions into a shared resolution
+  output: synthesis of EXACTLY TWO agent positions (Player-A and Player-B only) into a shared resolution
 }
 
 BEHAVIOR Synthesis {
+  CONSTRAINT: There are EXACTLY TWO players: Player-A and Player-B. Do NOT reference Player-C, Player-D, or any other player — they do not exist.
   CONSTRAINT: Identify the points of agreement between Player-A and Player-B
   CONSTRAINT: Identify the points of disagreement and which evidence supports which side
   CONSTRAINT: Where evidence supports one side, ratify that side; where it's ambiguous, escalate

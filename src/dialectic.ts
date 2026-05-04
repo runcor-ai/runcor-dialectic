@@ -429,7 +429,7 @@ async function runMultiCritic(
     transcript,
     rounds: 1,
     converged: true,
-    convergence_reason: 'coach-converged-validated', // single-pass synthesis — no convergence loop
+    convergence_reason: 'single-pass-synthesized',
     cost: { usd: budget.total, tokens: totalTokens },
     duration_ms: totalDuration,
   };
@@ -525,7 +525,7 @@ async function runInterAgent(
     transcript,
     rounds: 1,
     converged: true,
-    convergence_reason: 'coach-converged-validated', // single-pass synthesis
+    convergence_reason: 'single-pass-synthesized',
     cost: { usd: budget.total, tokens: totalTokens },
     duration_ms: totalDuration,
   };
