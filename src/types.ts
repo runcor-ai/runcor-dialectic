@@ -119,6 +119,13 @@ export interface DialecticConfig {
   customPrices?: Record<string, { input_per_m: number; output_per_m: number }>;
   /** Per-role overrides. If a role is supplied here, it overrides the role-set entry. */
   roles?: Partial<Record<string, RoleConfig>>;
+  /** Engine-pluggable model interface. When provided, every Player/Coach/Judge
+   *  call routes through this instead of the internal ProviderRegistry. Use
+   *  this when running inside a runcor engine flow: pass `ctx.model`. The
+   *  RoleConfig.model field becomes the model identifier passed to the engine;
+   *  any "openrouter/" prefix is stripped before forwarding. When omitted, the
+   *  legacy ProviderAdapter path runs (standalone library use). */
+  model?: DialecticModelInterface;
 }
 
 export interface DialecticResult {
@@ -152,4 +159,42 @@ export interface RoleRegistry {
   registerRoleSet(set: RoleSet): void;
   getRoleSet(name: string): RoleSet | undefined;
   listRoleSets(): string[];
+}
+
+// ── ModelInterface (engine-pluggable model call surface) ────────────────────
+// Shape-compatible with the runcor engine's ModelInterface (ctx.model). When a
+// DialecticConfig is passed with `model: <ModelInterface>`, every Player/Coach/
+// Judge call routes through it INSTEAD of the internal ProviderRegistry. This
+// is how runcor-lattice wires the dialectic into the engine — engine handles
+// routing, fallback, cost ledger, telemetry, policy. The legacy ProviderAdapter
+// path remains for standalone library use where no engine is available.
+
+export interface DialecticModelRequest {
+  /** Model identifier (bare, e.g. "nvidia/nemotron-3-super-120b-a12b" — no provider prefix). */
+  model: string;
+  /** Conversation history. */
+  messages: ProviderMessage[];
+  /** Optional max response tokens. */
+  maxTokens?: number;
+  /** Optional temperature. */
+  temperature?: number;
+  /** Pin to a specific provider by name (e.g. "openrouter", "anthropic"). */
+  provider?: string;
+  /** Optional system prompt separate from messages. */
+  systemPrompt?: string;
+}
+
+export interface DialecticModelResponse {
+  /** The completion text. */
+  text: string;
+  /** Token usage from the underlying provider. */
+  usage: { promptTokens: number; completionTokens: number };
+  /** Model that produced the response (may differ from request.model when router picked a fallback). */
+  model: string;
+  /** Provider that handled the request. */
+  provider: string;
+}
+
+export interface DialecticModelInterface {
+  complete(request: DialecticModelRequest): Promise<DialecticModelResponse>;
 }

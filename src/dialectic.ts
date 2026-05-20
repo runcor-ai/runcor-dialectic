@@ -37,6 +37,175 @@ function ensureCanonicalRegistered(): void {
 const DEFAULT_MAX_ROUNDS = 5;
 const DEFAULT_CONVERGENCE_THRESHOLD = 0.75;
 
+// ─── R++ wrapper builders ────────────────────────────────────────────────────
+// Every multi-round message is wrapped in R++ syntax (TARGET / DATA / BEHAVIOR /
+// CHECKLIST). The earlier prose wrappers — "Original problem / Your previous
+// analysis / Provide your revised analysis" — clobbered the deliverable framing
+// because the revision system prompt is the only persistent signal across rounds.
+// R++ keeps the deliverable framing consistent at every round.
+
+function rppCoachCritique(problem: string, playerOutput: string): string {
+  return `TARGET {
+  output: a critique of the player's deliverable per your role's BEHAVIOR rules
+  profile: dialectic-coach-critique
+}
+
+DATA {
+  original_problem:
+${indent(problem, 4)}
+
+  deliverable_to_critique:
+${indent(playerOutput, 4)}
+}`;
+}
+
+function rppCoachBareConvergedReprompt(): string {
+  return `TARGET {
+  output: either a valid CONVERGED block with the required enumeration, or a fresh critique
+  profile: dialectic-coach-bare-converged-reprompt
+}
+
+BEHAVIOR Required {
+  CONSTRAINT: your previous CONVERGED was rejected because the three "no objection" lines were missing
+  CONSTRAINT: to emit CONVERGED, state on three separate lines:
+    "no objection on data: <reason>"
+    "no objection on options: <reason>"
+    "no objection on framing: <reason>"
+  CONSTRAINT: on the line after those three, emit the literal token: CONVERGED
+  CONSTRAINT: if you cannot honestly emit those three lines, do NOT emit CONVERGED — provide a fresh critique instead
+}`;
+}
+
+function rppPlayerRevisionFromCritique(problem: string, previousDeliverable: string, critique: string): string {
+  return `TARGET {
+  output: a revised deliverable in the SAME FORMAT as previous_deliverable, incorporating valid critique
+  profile: dialectic-player-revision-from-critique
+}
+
+DATA {
+  original_problem:
+${indent(problem, 4)}
+
+  previous_deliverable:
+${indent(previousDeliverable, 4)}
+
+  critique:
+${indent(critique, 4)}
+}`;
+}
+
+function rppPlayerRevisionFromMissing(problem: string, previousDeliverable: string, missing: string[]): string {
+  const missingList = missing.map((m, i) => `    ${i + 1}. ${m}`).join('\n');
+  return `TARGET {
+  output: a revised deliverable in the SAME FORMAT as previous_deliverable, with every missing concern reflected in the content
+  profile: dialectic-player-revision-from-missing
+}
+
+DATA {
+  original_problem:
+${indent(problem, 4)}
+
+  previous_deliverable:
+${indent(previousDeliverable, 4)}
+
+  missing_concerns:
+${missingList}
+}
+
+BEHAVIOR {
+  CONSTRAINT: every numbered missing_concern MUST be reflected in the revised deliverable's content — name the entity, number, or contradiction directly
+}`;
+}
+
+function rppMultiCriticCritique(problem: string, playerDraft: string, criticRole: string): string {
+  return `TARGET {
+  output: a critique from the ${criticRole.toUpperCase()} perspective per your role's BEHAVIOR rules
+  profile: dialectic-multi-critic-${criticRole}
+}
+
+DATA {
+  original_problem:
+${indent(problem, 4)}
+
+  player_draft:
+${indent(playerDraft, 4)}
+}`;
+}
+
+function rppMultiCriticSynthesis(problem: string, playerDraft: string, critiques: Array<{ role: string; content: string }>): string {
+  const critiqueBlocks = critiques.map((c) =>
+    `  ${c.role}_critique:\n${indent(c.content, 4)}`
+  ).join('\n\n');
+  return `TARGET {
+  output: the final amended deliverable in the format the original problem requested, with each critic's substantive concern decided
+  profile: dialectic-multi-critic-synthesis
+}
+
+DATA {
+  original_problem:
+${indent(problem, 4)}
+
+  player_draft:
+${indent(playerDraft, 4)}
+
+${critiqueBlocks}
+}
+
+BEHAVIOR Synthesis {
+  CONSTRAINT: produce the final deliverable in the format the original_problem requested
+  CONSTRAINT: for each substantive critic concern, decide whether to incorporate it; embed incorporated changes into the deliverable itself
+  CONSTRAINT: do not output meta-commentary about which critiques were accepted or rejected
+}`;
+}
+
+function rppInterAgentPlayerB(problem: string, playerAPosition: string): string {
+  return `TARGET {
+  output: your independent reading of the problem, in the format the problem requested
+  profile: dialectic-inter-agent-player-b
+}
+
+DATA {
+  original_problem:
+${indent(problem, 4)}
+
+  player_a_position:
+${indent(playerAPosition, 4)}
+}
+
+BEHAVIOR {
+  CONSTRAINT: provide your own reading; do not summarize player_a
+  CONSTRAINT: produce the deliverable in the format the original_problem requested
+}`;
+}
+
+function rppInterAgentJudge(problem: string, aRes: string, bRes: string): string {
+  return `TARGET {
+  output: the team's shared resolution of the problem, in the format the problem requested
+  profile: dialectic-inter-agent-synthesis
+}
+
+DATA {
+  original_problem:
+${indent(problem, 4)}
+
+  player_a_position:
+${indent(aRes, 4)}
+
+  player_b_position:
+${indent(bRes, 4)}
+}
+
+BEHAVIOR Synthesis {
+  CONSTRAINT: produce the shared resolution as the deliverable in the format the original_problem requested
+  CONSTRAINT: identify points of agreement and disagreement internally; do not enumerate them as headers in the output
+}`;
+}
+
+function indent(text: string, spaces: number): string {
+  const pad = ' '.repeat(spaces);
+  return text.split('\n').map((line) => pad + line).join('\n');
+}
+
 export async function dialectic(config: DialecticConfig): Promise<DialecticResult> {
   ensureCanonicalRegistered();
 
@@ -157,7 +326,7 @@ export async function dialectic(config: DialecticConfig): Promise<DialecticResul
     // Coach critique (with one re-prompt if bare CONVERGED detected)
     const coachMsg = [
       { role: 'system' as const, content: coachCfg.systemPrompt },
-      { role: 'user' as const, content: `Problem:\n${config.problem}\n\nAnalysis to critique:\n${lastPlayerContent}` },
+      { role: 'user' as const, content: rppCoachCritique(config.problem, lastPlayerContent) },
     ];
     let coachRes = await callProvider(coachProvider, coachMsg, coachCfg, 'coach', r, transcript);
     let validation = validateCoachConvergence(coachRes.content);
@@ -167,7 +336,7 @@ export async function dialectic(config: DialecticConfig): Promise<DialecticResul
       const followUp = [
         ...coachMsg,
         { role: 'assistant' as const, content: coachRes.content },
-        { role: 'user' as const, content: `Your CONVERGED was rejected because you did not include the required enumeration. You MUST emit, on three separate lines:\n"no objection on data: <reason>"\n"no objection on options: <reason>"\n"no objection on framing: <reason>"\nThen on the next line: CONVERGED. If you cannot honestly emit those three lines, do not emit CONVERGED — instead provide a new critique.` },
+        { role: 'user' as const, content: rppCoachBareConvergedReprompt() },
       ];
       coachRes = await callProvider(coachProvider, followUp, coachCfg, 'coach', r, transcript);
       validation = validateCoachConvergence(coachRes.content);
@@ -212,8 +381,7 @@ export async function dialectic(config: DialecticConfig): Promise<DialecticResul
       // Force a stronger Player revision
       const reviseMsg = [
         { role: 'system' as const, content: playerCfg.revisionSystemPrompt ?? playerCfg.systemPrompt },
-        { role: 'user' as const, content:
-          `Original problem:\n${config.problem}\n\nYour previous analysis:\n${lastPlayerContent}\n\nThe judge identified these missing concerns that your analysis did not address:\n${inc.missing.map((m, i) => `${i + 1}. ${m}`).join('\n')}\n\nProvide a revised analysis that explicitly addresses each missing concern by name.` },
+        { role: 'user' as const, content: rppPlayerRevisionFromMissing(config.problem, lastPlayerContent, inc.missing) },
       ];
       const reviseRes = await callProvider(playerProvider, reviseMsg, playerCfg, 'player', r + 1, transcript);
       transcript.push(makeRound({
@@ -267,8 +435,7 @@ export async function dialectic(config: DialecticConfig): Promise<DialecticResul
       previousCritiques.push(coachRes.content);
       const reviseMsg = [
         { role: 'system' as const, content: playerCfg.revisionSystemPrompt ?? playerCfg.systemPrompt },
-        { role: 'user' as const, content:
-          `Original problem:\n${config.problem}\n\nYour previous analysis:\n${lastPlayerContent}\n\nThe judge identified these missing concerns that your analysis did not address:\n${inc.missing.map((m, i) => `${i + 1}. ${m}`).join('\n')}\n\nProvide a revised analysis that explicitly addresses each missing concern by name.` },
+        { role: 'user' as const, content: rppPlayerRevisionFromMissing(config.problem, lastPlayerContent, inc.missing) },
       ];
       const reviseRes = await callProvider(playerProvider, reviseMsg, playerCfg, 'player', r + 1, transcript);
       transcript.push(makeRound({
@@ -290,8 +457,7 @@ export async function dialectic(config: DialecticConfig): Promise<DialecticResul
     previousCritiques.push(coachRes.content);
     const reviseMsg = [
       { role: 'system' as const, content: playerCfg.revisionSystemPrompt ?? playerCfg.systemPrompt },
-      { role: 'user' as const, content:
-        `Original problem:\n${config.problem}\n\nYour previous analysis:\n${lastPlayerContent}\n\nCritique received:\n${coachRes.content}\n\nProvide your revised analysis.` },
+      { role: 'user' as const, content: rppPlayerRevisionFromCritique(config.problem, lastPlayerContent, coachRes.content) },
     ];
     const reviseRes = await callProvider(playerProvider, reviseMsg, playerCfg, 'player', r + 1, transcript);
     transcript.push(makeRound({
@@ -392,7 +558,7 @@ async function runMultiCritic(
       criticProvider,
       [
         { role: 'system', content: criticCfg.systemPrompt },
-        { role: 'user', content: `Problem:\n${config.problem}\n\nPlayer's draft:\n${playerInit.content}\n\nProvide your critique from your role's perspective.` },
+        { role: 'user', content: rppMultiCriticCritique(config.problem, playerInit.content, criticName) },
       ],
       criticCfg, criticName, 0, transcript,
     );
@@ -406,10 +572,7 @@ async function runMultiCritic(
 
   // Judge synthesizes
   checkBudget(playerInit.cost_usd);
-  const judgePrompt = `Problem:\n${config.problem}\n\n` +
-    `Player's draft:\n${playerInit.content}\n\n` +
-    critiques.map(c => `${c.role.toUpperCase()} critique:\n${c.content}`).join('\n\n') + '\n\n' +
-    `Synthesize a final amended position. For each critic's substantive concern, decide whether the Player should incorporate it. Output the final amended answer.`;
+  const judgePrompt = rppMultiCriticSynthesis(config.problem, playerInit.content, critiques);
   const judgeRes = await callProvider(
     judgeProvider,
     [
@@ -496,7 +659,7 @@ async function runInterAgent(
     playerBProvider,
     [
       { role: 'system', content: playerBCfg.systemPrompt },
-      { role: 'user', content: `Problem:\n${config.problem}\n\nPlayer-A's position:\n${aRes.content}\n\nProvide your independent reading.` },
+      { role: 'user', content: rppInterAgentPlayerB(config.problem, aRes.content) },
     ],
     playerBCfg, 'player-b', 0, transcript,
   );
@@ -508,7 +671,7 @@ async function runInterAgent(
 
   // Judge synthesizes
   checkBudget(aRes.cost_usd);
-  const judgePrompt = `Problem:\n${config.problem}\n\nPlayer-A:\n${aRes.content}\n\nPlayer-B:\n${bRes.content}\n\nIdentify points of agreement, points of disagreement, and the evidence supporting each side. Output the team's shared resolution.`;
+  const judgePrompt = rppInterAgentJudge(config.problem, aRes.content, bRes.content);
   const judgeRes = await callProvider(
     judgeProvider,
     [{ role: 'system', content: judgeCfg.systemPrompt }, { role: 'user', content: judgePrompt }],
