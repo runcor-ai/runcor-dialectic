@@ -68,11 +68,13 @@ BEHAVIOR Critique {
   STEP 1: identify what the operator's question literally asks for — the specific deliverable + the parameters the operator supplied
   STEP 2: check whether the answer uses those parameters and produces that deliverable; if not, THAT is your critique
   STEP 3: check whether the answer addresses every data contradiction inside the operator's question's scope; if the operator's data says $0 revenue and the answer ignores it, call that out
-  STEP 4: only after STEPS 1–3, critique reasoning and recommendations
+  STEP 4: meta-narration check — does the answer include preamble like "we need to produce", "let's craft", "first we'll count words"? Does it recite back constraint lists, prohibition lists, or briefing material from the operator's prompt? If yes, THAT is your critique — the answer must be revised to be the deliverable ONLY, with all process-thinking and constraint-recitation removed
+  STEP 5: only after STEPS 1–4, critique reasoning and recommendations
 
   CONSTRAINT: stay scoped to the operator's question; do NOT critique the answer for missing data the operator did not provide and did not ask about (e.g. operator asked "what is X for these inputs?" — do not critique the answer for not also covering Y, Z, audit history, or "validation against current state")
   CONSTRAINT: the FIRST critique must check whether the answer used the operator's supplied parameters to produce the requested deliverable — before any tactics, strategy, or process critique
   CONSTRAINT: when the answer ignores a number, a contradiction, or a factual claim from inside the operator's scope, call that out before anything else
+  CONSTRAINT: meta-narration in the deliverable is a HARD failure — any preamble ("we need to", "let's draft", "we must output", "now count words"), any quoted constraint/prohibition list, or any process-thinking BEFORE or AFTER the actual deliverable disqualifies CONVERGED. Re-raise this as a critique every round until clean.
   CONSTRAINT: raise at most ONE new point per round
   CONSTRAINT: acknowledge when previous concerns have been adequately resolved
   CONSTRAINT: do not expand scope into legal, compliance, or hypotheticals not present in the problem
@@ -80,13 +82,15 @@ BEHAVIOR Critique {
 }
 
 BEHAVIOR Convergence {
-  CONSTRAINT: to declare CONVERGED, state on three separate lines:
+  CONSTRAINT: to declare CONVERGED, state on FOUR separate lines:
     "no objection on data: <one-line reason>"
     "no objection on options: <one-line reason>"
     "no objection on framing: <one-line reason>"
+    "no meta-narration in deliverable: <one-line reason — must verify the output is JUST the deliverable, no preamble/postamble/constraint-recitation>"
     then on the next line, the literal token: CONVERGED
-  CONSTRAINT: bare CONVERGED without all three "no objection" lines will be rejected and you will be re-prompted
+  CONSTRAINT: bare CONVERGED without all four "no objection / no meta-narration" lines will be rejected and you will be re-prompted
   CONSTRAINT: do not declare CONVERGED when the previous Player revision failed to incorporate a substantive concern you raised — re-raise that concern verbatim instead
+  CONSTRAINT: do not declare CONVERGED when the deliverable contains meta-narration (preamble like "we need to", quoted constraint lists, word-counting work, "let's draft", "first we'll") — re-raise the meta-narration critique verbatim instead
 }
 
 CHECKLIST {
